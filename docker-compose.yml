@@ -15,7 +15,8 @@ volumes:
   langfuse_minio_data:
 
 x-n8n: &service-n8n
-  image: n8nio/n8n:latest
+  # Pinned by digest: was :latest. Image built 2026-09-11.
+  image: n8nio/n8n@sha256:a8c95f75c6fdf65f5f2b7a7b354744eaa1c62bb911b5c00af6499c3f38e4cd32
   environment:
     - DB_TYPE=postgresdb
     - DB_POSTGRESDB_HOST=postgres
@@ -59,7 +60,8 @@ services:
     entrypoint: /bin/sh -c "sleep 3; flowise start"
 
   open-webui:
-    image: ghcr.io/open-webui/open-webui:main
+    # Pinned by digest: :main is a rolling branch build. Image built 2026-09-04.
+    image: ghcr.io/open-webui/open-webui@sha256:1a6399d237dc392a2313e0ca826020b3fd5d22536357840eb63393d18dc8b924
     restart: unless-stopped
     container_name: open-webui
     expose:
@@ -94,7 +96,8 @@ services:
         condition: service_completed_successfully
 
   qdrant:
-    image: qdrant/qdrant
+    # Pinned by digest: was untagged (:latest). Image built 2026-09-03.
+    image: qdrant/qdrant@sha256:12364fe851b9f17356fc88189fc06d1b521262e04659ec7345975b00c9246a10
     container_name: qdrant
     restart: unless-stopped
     expose:
@@ -104,7 +107,9 @@ services:
       - qdrant_storage:/qdrant/storage
 
   neo4j:
-    image: neo4j:latest
+    # Pinned by digest: was :latest, where a major bump can require a store
+    # migration and refuse to start on the existing volume. Image built 2026-09-11.
+    image: neo4j@sha256:7f2c38fa0de8caf875d35237fa7dabda74de4f4fc2fc7c3c9e4b53c2add268ad
     volumes:
         - ./neo4j/logs:/logs
         - ./neo4j/config:/config
@@ -234,7 +239,9 @@ services:
       LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
 
   clickhouse:
-    image: clickhouse/clickhouse-server
+    # Pinned by digest: was untagged (:latest). Upstream Langfuse pins 25.12.
+    # Image built 2026-09-14.
+    image: clickhouse/clickhouse-server@sha256:b1d9f9baec7727c779a6febb2a95eb08a8e1de3f463294e3ebb35c3d3fb30360
     restart: always
     user: "101:101"
     expose:
@@ -256,7 +263,9 @@ services:
       start_period: 1s
 
   minio:
-    image: cgr.dev/chainguard/minio
+    # Digest pin is the only option here: Chainguard's free tier publishes only
+    # :latest, and rebuilds it frequently. Image built 2026-09-14.
+    image: cgr.dev/chainguard/minio@sha256:21b9e1bccf46098dee2e928952bf5fd4690a5ec30a3b86a1e728f1bb0ceaed0e
     restart: always
     entrypoint: sh
     # create the 'langfuse' bucket before starting the service
@@ -321,7 +330,8 @@ services:
 
   searxng:
     container_name: searxng
-    image: docker.io/searxng/searxng:latest
+    # Pinned by digest: :latest is rebuilt daily. Image built 2026-09-15.
+    image: docker.io/searxng/searxng@sha256:b16c0946fd73c98e8d72db455ff3f23005ee88fe190854699c88310b44f1bc00
     restart: unless-stopped
     expose:
       - 8080/tcp
