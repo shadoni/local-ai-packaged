@@ -6,3 +6,13 @@ shared-backup/
 .env.test
 searxng/settings.yml
 searxng/uwsgi*
+
+# Timestamped .env backups. Same secrets as .env, so the .env rule above is
+# not enough on its own.
+.env.bak*
+
+# Sparse checkout of the Supabase docker config, cloned by start_services.py.
+supabase/
+
+# macOS Finder metadata.
+.DS_Store
