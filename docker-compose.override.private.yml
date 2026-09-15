@@ -6,6 +6,35 @@ services:
   open-webui:
     ports:
       - 127.0.0.1:8080:8080
+    environment:
+      # ------------------------------------------------------------------
+      # tw-stts audio gateway (Taiwanese Mandarin TTS + code-switching STT)
+      # Runs natively on the macOS host: MLX needs bare-metal Apple Silicon
+      # and Docker Desktop has no GPU passthrough.
+      #   repo:  ~/pgit/tw-stts
+      #   setup: docs/openwebui-setup.md
+      # ------------------------------------------------------------------
+
+      # ---- Speech to text ----
+      - AUDIO_STT_ENGINE=openai
+      - AUDIO_STT_OPENAI_API_BASE_URL=http://host.docker.internal:1235/v1
+      - AUDIO_STT_OPENAI_API_KEY=${TW_STTS_API_KEY}
+      - AUDIO_STT_MODEL=breeze-asr-25
+
+      # Keep uploads at full fidelity. Without this Open WebUI rewrites audio
+      # to 16 kHz mono 32 kbps MP3 and splits it into chunks before sending,
+      # which measurably degrades recognition on code-switching speech.
+      # It also stops Open WebUI transcoding TTS replies, which is why
+      # tw-stts returns MP3 natively.
+      - BYPASS_PYDUB_PREPROCESSING=true
+
+      # ---- Text to speech ----
+      - AUDIO_TTS_ENGINE=openai
+      - AUDIO_TTS_OPENAI_API_BASE_URL=http://host.docker.internal:1235/v1
+      - AUDIO_TTS_OPENAI_API_KEY=${TW_STTS_API_KEY}
+      - AUDIO_TTS_MODEL=bluemagpie-tts
+      - AUDIO_TTS_VOICE=hung_yi_lee
+      - AUDIO_TTS_SPLIT_ON=punctuation
 
   n8n:
     ports:
@@ -52,15 +81,3 @@ services:
   searxng:
     ports:
       - 127.0.0.1:8081:8080
-
-  ollama-cpu:
-    ports:
-      - 127.0.0.1:11434:11434
-
-  ollama-gpu:
-    ports:
-      - 127.0.0.1:11434:11434
-      
-  ollama-gpu-amd:
-    ports:
-      - 127.0.0.1:11434:11434

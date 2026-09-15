@@ -3,7 +3,6 @@ include:
 
 volumes:
   n8n_storage:
-  ollama_storage:
   qdrant_storage:
   open-webui:
   flowise:
@@ -19,7 +18,7 @@ x-n8n: &service-n8n
   image: n8nio/n8n:latest
   environment:
     - DB_TYPE=postgresdb
-    - DB_POSTGRESDB_HOST=db
+    - DB_POSTGRESDB_HOST=postgres
     - DB_POSTGRESDB_USER=postgres
     - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
     - DB_POSTGRESDB_DATABASE=postgres
@@ -29,35 +28,22 @@ x-n8n: &service-n8n
     - N8N_USER_MANAGEMENT_JWT_SECRET
     - WEBHOOK_URL=${N8N_HOSTNAME:+https://}${N8N_HOSTNAME:-http://localhost:5678}
     # Uncomment to enable LocalFileTrigger and ExecuteCommand nodes (disabled by default in n8n v2+)
-    # - NODES_EXCLUDE=[]
-
-x-ollama: &service-ollama
-  image: ollama/ollama:latest
-  container_name: ollama
-  restart: unless-stopped
-  expose:
-    - 11434/tcp
-  environment:
-    - OLLAMA_CONTEXT_LENGTH=8192
-    - OLLAMA_FLASH_ATTENTION=1
-    - OLLAMA_KV_CACHE_TYPE=q8_0
-    - OLLAMA_MAX_LOADED_MODELS=2
-  volumes:
-    - ollama_storage:/root/.ollama
-
-x-init-ollama: &init-ollama
-  image: ollama/ollama:latest
-  container_name: ollama-pull-llama
-  volumes:
-    - ollama_storage:/root/.ollama
-  entrypoint: /bin/sh
-  command:
-    - "-c"
-    - "sleep 3; OLLAMA_HOST=ollama:11434 ollama pull qwen2.5:7b-instruct-q4_K_M; OLLAMA_HOST=ollama:11434 ollama pull nomic-embed-text"
+    - NODES_EXCLUDE=[]
+    - N8N_SECURE_COOKIE=false
+    - N8N_RESTRICT_FILE_ACCESS_TO=/data/shared;/home/node/.n8n-files
+    - OLLAMA_HOST=host.docker.internal:11434
 
 services:
   flowise:
-    image: flowiseai/flowise
+    # Pinned: FlowiseAI/Flowise#6688. Flowise's Dockerfile installs
+    # connect-sqlite3 unpinned, and 0.9.17 changed the SQLiteStore constructor
+    # (options.db must now be an opened sqlite3.Database, not a filename).
+    # SessionPersistance.js still passes a filename, so the server crashes with
+    # "TypeError: this.db.exec is not a function" right after init. Any image
+    # built after 0.9.17 was published is affected, at any version tag.
+    # 3.1.3 is the newest published image that still bundles 0.9.16.
+    # Upstream is archived as of 2026-08-10, so no official fix is coming.
+    image: flowiseai/flowise:3.1.3
     restart: unless-stopped
     container_name: flowise
     expose:
@@ -83,6 +69,16 @@ services:
     volumes:
       - open-webui:/app/backend/data
 
+  n8n-import:
+    <<: *service-n8n
+    container_name: n8n-import
+    entrypoint: /bin/sh
+    command:
+      - "-c"
+      - "n8n import:credentials --separate --input=/backup/credentials && n8n import:workflow --separate --input=/backup/workflows"
+    volumes:
+      - ./n8n/backup:/backup
+
   n8n:
     <<: *service-n8n
     container_name: n8n
@@ -93,6 +89,9 @@ services:
       - n8n_storage:/home/node/.n8n
       - ./n8n/backup:/backup
       - ./shared:/data/shared
+    depends_on:
+      n8n-import:
+        condition: service_completed_successfully
 
   qdrant:
     image: qdrant/qdrant
@@ -257,7 +256,7 @@ services:
       start_period: 1s
 
   minio:
-    image: minio/minio
+    image: cgr.dev/chainguard/minio
     restart: always
     entrypoint: sh
     # create the 'langfuse' bucket before starting the service
@@ -343,45 +342,3 @@ services:
       options:
         max-size: "1m"
         max-file: "1"
-
-  ollama-cpu:
-    profiles: ["cpu"]
-    <<: *service-ollama
-
-  ollama-gpu:
-    profiles: ["gpu-nvidia"]
-    <<: *service-ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-  ollama-gpu-amd:
-    profiles: ["gpu-amd"]
-    <<: *service-ollama
-    image: ollama/ollama:rocm
-    devices:
-      - "/dev/kfd"
-      - "/dev/dri"
-
-  ollama-pull-llama-cpu:
-    profiles: ["cpu"]
-    <<: *init-ollama
-    depends_on:
-      - ollama-cpu
-
-  ollama-pull-llama-gpu:
-    profiles: ["gpu-nvidia"]
-    <<: *init-ollama
-    depends_on:
-      - ollama-gpu
-
-  ollama-pull-llama-gpu-amd:
-    profiles: [gpu-amd]
-    <<: *init-ollama
-    image: ollama/ollama:rocm
-    depends_on:
-     - ollama-gpu-amd
