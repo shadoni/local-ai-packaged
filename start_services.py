@@ -20,8 +20,25 @@ def run_command(cmd, cwd=None):
     print("Running:", " ".join(cmd))
     subprocess.run(cmd, cwd=cwd, check=True)
 
-def clone_supabase_repo():
-    """Clone the Supabase repository using sparse checkout if not already present."""
+# Supabase commit this stack is pinned to.
+#
+# supabase/supabase is a fast-moving monorepo and its docker/ directory is not
+# released on any schedule, so tracking master means every start silently moves
+# all 11 supabase-* image versions, the compose topology, and the set of
+# required .env vars. That has already broken this repo before: commits 57c194a
+# and 2c54191 exist only to chase new required storage env vars that appeared on
+# master (GLOBAL_S3_BUCKET, STORAGE_TENANT_ID, S3_PROTOCOL_ACCESS_KEY_ID, ...).
+#
+# Bump this deliberately with --update-supabase, verify the stack, then commit
+# the new value so the version is recorded alongside any matching .env changes.
+SUPABASE_COMMIT = "4d57edd6227dded0d9e55d6d1c1809d8926d63f6"  # 2026-09-14, verified
+
+
+def clone_supabase_repo(update=False):
+    """Sparse-checkout the Supabase repo at the pinned commit.
+
+    Only fetches from the network on first clone, or when update is True.
+    """
     if not os.path.exists("supabase"):
         print("Cloning the Supabase repository...")
         run_command([
@@ -31,13 +48,38 @@ def clone_supabase_repo():
         os.chdir("supabase")
         run_command(["git", "sparse-checkout", "init", "--cone"])
         run_command(["git", "sparse-checkout", "set", "docker"])
-        run_command(["git", "checkout", "master"])
+        os.chdir("..")
+    elif update:
+        print("Updating the Supabase repository (--update-supabase)...")
+        os.chdir("supabase")
+        run_command(["git", "fetch", "origin", "master"])
+        print("Fetched origin/master. Newer commits available:")
+        # Informational only: never auto-advance the pin.
+        subprocess.run(
+            ["git", "log", "--oneline", "-10", f"{SUPABASE_COMMIT}..origin/master"],
+            check=False,
+        )
+        print(
+            "\nStill checking out the pinned commit. To move to a newer one, set\n"
+            "SUPABASE_COMMIT in start_services.py, then verify and commit it."
+        )
         os.chdir("..")
     else:
-        print("Supabase repository already exists, updating...")
-        os.chdir("supabase")
-        run_command(["git", "pull"])
+        print(f"Supabase repository already exists, using pinned commit {SUPABASE_COMMIT[:12]}.")
+
+    # Always land on the pinned commit, whichever path we took above.
+    os.chdir("supabase")
+    try:
+        run_command(["git", "checkout", "--force", SUPABASE_COMMIT])
+    except subprocess.CalledProcessError:
+        print(
+            f"\nCould not check out pinned Supabase commit {SUPABASE_COMMIT}.\n"
+            "It is probably not in the local clone yet. Re-run with "
+            "--update-supabase to fetch it."
+        )
         os.chdir("..")
+        sys.exit(1)
+    os.chdir("..")
 
 def fix_windows_line_endings():
     """Fix CRLF line endings in Supabase config files on Windows."""
@@ -243,9 +285,12 @@ def main():
                       help='Profile to use for Docker Compose (default: cpu)')
     parser.add_argument('--environment', choices=['private', 'public'], default='private',
                       help='Environment to use for Docker Compose (default: private)')
+    parser.add_argument('--update-supabase', action='store_true',
+                      help='Fetch the Supabase repo and list commits newer than the pinned '
+                           'one. Does not change the pin; edit SUPABASE_COMMIT to do that.')
     args = parser.parse_args()
 
-    clone_supabase_repo()
+    clone_supabase_repo(update=args.update_supabase)
     fix_windows_line_endings()
     prepare_supabase_env()
 
